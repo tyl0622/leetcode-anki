@@ -14,8 +14,6 @@ from typing import Any, Awaitable, Callable, Coroutine, List
 import genanki  # type: ignore
 from tqdm import tqdm  # type: ignore
 
-import leetcode_anki.helpers.leetcode
-
 LEETCODE_ANKI_MODEL_ID = 4567610856
 LEETCODE_ANKI_DECK_ID = 8589798175
 OUTPUT_FILE = "leetcode.apkg"
@@ -70,7 +68,7 @@ class LeetcodeNote(genanki.Note):
 
 
 async def generate_anki_note(
-    leetcode_data: leetcode_anki.helpers.leetcode.LeetcodeData,
+    leetcode_data,
     leetcode_model: genanki.Model,
     leetcode_task_handle: str,
 ) -> LeetcodeNote:
@@ -78,36 +76,17 @@ async def generate_anki_note(
     Generate a single Anki flashcard
     """
     return LeetcodeNote(
+
         model=leetcode_model,
         fields=[
             leetcode_task_handle,
-            str(await leetcode_data.problem_id(leetcode_task_handle)),
-            str(await leetcode_data.title(leetcode_task_handle)),
-            str(await leetcode_data.category(leetcode_task_handle)),
-            await leetcode_data.description(leetcode_task_handle),
-            await leetcode_data.difficulty(leetcode_task_handle),
-            "yes" if await leetcode_data.paid(leetcode_task_handle) else "no",
-            str(await leetcode_data.likes(leetcode_task_handle)),
-            str(await leetcode_data.dislikes(leetcode_task_handle)),
-            str(await leetcode_data.submissions_total(leetcode_task_handle)),
-            str(await leetcode_data.submissions_accepted(leetcode_task_handle)),
-            str(
-                int(
-                    await leetcode_data.submissions_accepted(leetcode_task_handle)
-                    / await leetcode_data.submissions_total(leetcode_task_handle)
-                    * 100
-                )
-            ),
-            str(await leetcode_data.freq_bar(leetcode_task_handle)),
+            str(leetcode_data[leetcode_task_handle]),
         ],
-        tags=await leetcode_data.tags(leetcode_task_handle),
-        # FIXME: sort field doesn't work doesn't work
-        sort_field=str(await leetcode_data.freq_bar(leetcode_task_handle)).zfill(3),
     )
 
 
 async def generate(
-    start: int, stop: int, page_size: int, list_id: str, output_file: str
+    start: int, stop: int, page_size: int, list_id: str, input_file, output_file: str
 ) -> None:
     """
     Generate an Anki deck
@@ -117,76 +96,44 @@ async def generate(
         "Leetcode model",
         fields=[
             {"name": "Slug"},
-            {"name": "Id"},
             {"name": "Title"},
-            {"name": "Topic"},
-            {"name": "Content"},
-            {"name": "Difficulty"},
-            {"name": "Paid"},
-            {"name": "Likes"},
-            {"name": "Dislikes"},
-            {"name": "SubmissionsTotal"},
-            {"name": "SubmissionsAccepted"},
-            {"name": "SumissionAcceptRate"},
-            {"name": "Frequency"},
+            # {"name": "Topic"},
+            # {"name": "Content"},
+            # {"name": "Difficulty"},
+            # {"name": "Paid"},
+            # {"name": "Likes"},
+            # {"name": "Dislikes"},
+            # {"name": "SubmissionsTotal"},
+            # {"name": "SubmissionsAccepted"},
+            # {"name": "SumissionAcceptRate"},
+            # {"name": "Frequency"},
             # TODO: add hints
         ],
         templates=[
             {
                 "name": "Leetcode",
                 "qfmt": """
-                <h2>{{Id}}. {{Title}}</h2>
-                <b>Difficulty:</b> {{Difficulty}}<br/>
-                &#128077; {{Likes}} &#128078; {{Dislikes}}<br/>
-                <b>Submissions (total/accepted):</b>
-                {{SubmissionsTotal}}/{{SubmissionsAccepted}}
-                ({{SumissionAcceptRate}}%)
-                <br/>
-                <b>Topic:</b> {{Topic}}<br/>
-                <b>Frequency:</b>
-                <progress value="{{Frequency}}" max="100">
-                {{Frequency}}%
-                </progress>
-                <br/>
+                <h2>{{Title}}</h2>
                 <b>URL:</b>
-                <a href='https://leetcode.com/problems/{{Slug}}/'>
-                    https://leetcode.com/problems/{{Slug}}/
+                <a href='{{Slug}}'>
+                    {{Slug}}
                 </a>
                 <br/>
-                <h3>Description</h3>
-                {{Content}}
                 """,
                 "afmt": """
                 {{FrontSide}}
-                <hr id="answer">
-                <b>Discuss URL:</b>
-                <a href='https://leetcode.com/problems/{{Slug}}/discuss/'>
-                    https://leetcode.com/problems/{{Slug}}/discuss/
-                </a>
-                <br/>
-                <b>Solution URL:</b>
-                <a href='https://leetcode.com/problems/{{Slug}}/solution/'>
-                    https://leetcode.com/problems/{{Slug}}/solution/
-                </a>
-                <br/>
                 """,
             }
         ],
     )
     leetcode_deck = genanki.Deck(LEETCODE_ANKI_DECK_ID, Path(output_file).stem)
 
-    leetcode_data = leetcode_anki.helpers.leetcode.LeetcodeData(
-        start, stop, page_size, list_id
-    )
-
     note_generators: List[Awaitable[LeetcodeNote]] = []
 
-    task_handles = await leetcode_data.all_problems_handles()
-
     logging.info("Generating flashcards")
-    for leetcode_task_handle in task_handles:
+    for leetcode_task_handle in input_file.keys():
         note_generators.append(
-            generate_anki_note(leetcode_data, leetcode_model, leetcode_task_handle)
+            generate_anki_note(input_file, leetcode_model, leetcode_task_handle)
         )
 
     for leetcode_note in tqdm(note_generators, unit="flashcard"):
@@ -194,13 +141,23 @@ async def generate(
 
     genanki.Package(leetcode_deck).write_to_file(output_file)
 
+def format_text_to_dict(file_path):
+    formatted_dict = {}
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for line in file:
+            if ', ' in line:
+                url, file_name = line.strip().split(', ', 1)
+                formatted_dict[url] = file_name
+    return formatted_dict
 
 async def main() -> None:
     """
     The main script logic
     """
     args = parse_args()
-
+    file_path = "files.txt"
+    input_file = format_text_to_dict(file_path)
+    
     start, stop, page_size, list_id, output_file = (
         args.start,
         args.stop,
@@ -208,7 +165,7 @@ async def main() -> None:
         args.list_id,
         args.output_file,
     )
-    await generate(start, stop, page_size, list_id, output_file)
+    await generate(start, stop, page_size, list_id, input_file, output_file)
 
 
 if __name__ == "__main__":
